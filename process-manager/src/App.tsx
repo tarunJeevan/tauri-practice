@@ -2,9 +2,23 @@ import {useEffect, useState} from "react";
 import {invoke} from "@tauri-apps/api/core";
 import "./App.css";
 
+interface SystemInfo {
+    name: string,
+    os: string,
+    cpu_arch: string,
+    cpu_usage: number,
+    total_memory: string,
+    used_memory: string,
+}
+
 interface ProcessInfo {
     id: string,
-    name: string
+    name: string,
+    owner: string,
+    running_time_formatted: string,
+    memory_in_bytes: string,
+    status: string,
+    cpu_usage_percent: number,
 }
 
 export default function App() {
