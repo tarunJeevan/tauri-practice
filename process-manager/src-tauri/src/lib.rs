@@ -45,7 +45,7 @@ struct ProcessDetails {
 // #[tauri::command]
 // fn list_process_details(id: &str) -> ProcessDetails {}
 
-/// Kills running process with the given id
+/// Kills a running process with the given id
 ///
 /// `id` is the Pid of the process to be terminated
 ///
