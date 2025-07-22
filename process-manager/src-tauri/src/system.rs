@@ -1,4 +1,5 @@
 use std::thread::sleep;
+
 use serde::{Deserialize, Serialize};
 use sysinfo::{DiskRefreshKind, Disks, MemoryRefreshKind, System};
 
@@ -23,20 +24,20 @@ pub struct DiskInfo {
 }
 
 /// Formats given number of bytes into a readable String
-/// 
+///
 /// `bytes` is the number of bytes for memory or disk usage
-/// 
+///
 /// Returns a formatted String (e.g., "2 MB")
 fn format_bytes(bytes: u64) -> String {
     let units = ["B", "KB", "MB", "GB", "TB", "PB", "EB"];
     let mut size = bytes as f64;
     let mut unit = 0;
-    
+
     while size >= 1024.0 && unit < units.len() - 1 {
         size /= 1024.0;
         unit += 1;
     }
-    
+
     // Format to 1 decimal place if size is not a whole number
     if size.fract() == 0.0 {
         format!("{size:.0} {}", units[unit])
@@ -51,11 +52,9 @@ fn format_bytes(bytes: u64) -> String {
 #[tauri::command]
 pub fn get_sys_info() -> SystemInfo {
     let mut sys = System::new_all();
-    sys.refresh_memory_specifics(
-        MemoryRefreshKind::nothing().with_ram()
-    );
-    
-    sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL); // Required for accurate CPU usage stats 
+    sys.refresh_memory_specifics(MemoryRefreshKind::nothing().with_ram());
+
+    sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL); // Required for accurate CPU usage stats
     sys.refresh_cpu_usage();
 
     SystemInfo {
@@ -73,10 +72,9 @@ pub fn get_sys_info() -> SystemInfo {
 /// Returns a vector of `DiskInfo` structs, one for each disk
 #[tauri::command]
 pub fn get_all_disks() -> Vec<DiskInfo> {
-    let sys_disks = Disks::new_with_refreshed_list_specifics(
-        DiskRefreshKind::nothing().with_storage()
-    );
-    
+    let sys_disks =
+        Disks::new_with_refreshed_list_specifics(DiskRefreshKind::nothing().with_storage());
+
     sys_disks
         .iter()
         .map(|disk| DiskInfo {
@@ -90,14 +88,53 @@ pub fn get_all_disks() -> Vec<DiskInfo> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+    use std::env;
+
     #[test]
-    fn test_system_info() {
-        // TODO: Test get_sys_info() return
+    fn test_format_bytes() {
+        assert_eq!(format_bytes(123), "123 B");
+
+        assert_eq!(format_bytes(1024), "1 KB");
+        assert_eq!(format_bytes(1234), "1.2 KB");
+
+        assert_eq!(format_bytes(1048576), "1 MB");
+        assert_eq!(format_bytes(1234567), "1.2 MB");
     }
 
     #[test]
-    fn test_disks_info() {
-        // TODO: Test get_all_disks() return
+    fn test_get_system_info() {
+        let info = get_sys_info();
+
+        assert!(!info.name.is_empty());
+        assert_eq!(info.name, env::var("HOSTNAME").unwrap_or("<Unknown>".to_owned()));
+
+        assert!(!info.os.is_empty());
+        // assert_eq!(info.os, String::from(env::consts::OS)); // NOTE: Getting info from /etc/os-release 
+
+        assert!(!info.cpu_arch.is_empty());
+        assert_eq!(info.cpu_arch, String::from(env::consts::ARCH));
+
+        assert!(info.cpu_usage_percent >= 0.0);
+
+        assert!(!info.total_memory.is_empty());
+        assert!(info.total_memory.contains("B"));
+
+        assert!(!info.used_memory.is_empty());
+        assert!(info.used_memory.contains("B"));
+    }
+
+    #[test]
+    fn test_get_all_disks() {
+        let disks = get_all_disks();
+
+        for disk in disks {
+            assert!(!disk.name.is_empty());
+
+            assert!(!disk.total_space.is_empty());
+            assert!(disk.total_space.contains("B"));
+
+            assert!(!disk.used_space.is_empty());
+            assert!(disk.used_space.contains("B"));
+        }
     }
 }
