@@ -1,10 +1,14 @@
-use std::thread::sleep;
-
+use crate::MonitorUpdateState;
 use serde::{Deserialize, Serialize};
+use std::sync::Mutex;
+use std::thread::sleep;
+use std::time::Duration;
 use sysinfo::{DiskRefreshKind, Disks, MemoryRefreshKind, System};
+use tauri::{AppHandle, Emitter, Manager, State};
+use tokio::time::interval;
 
 // Struct to contain system info
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct SystemInfo {
     name: String,
     os: String,
@@ -49,8 +53,7 @@ fn format_bytes(bytes: u64) -> String {
 /// Gets system information such as Hostname, OS, CPU stats, RAM stats, etc.
 ///
 /// Returns a `SystemInfo` struct containing system information
-#[tauri::command]
-pub fn get_sys_info() -> SystemInfo {
+fn get_sys_info() -> SystemInfo {
     let mut sys = System::new_all();
     sys.refresh_memory_specifics(MemoryRefreshKind::nothing().with_ram());
 
@@ -65,6 +68,47 @@ pub fn get_sys_info() -> SystemInfo {
         total_memory: format_bytes(sys.total_memory()),
         used_memory: format_bytes(sys.used_memory()),
     }
+}
+
+/// Regularly updates frontend on system resource usage
+///
+/// `app` is used to emit event to the frontend
+#[tauri::command]
+pub async fn monitor_sys_info(app: AppHandle) {
+    // Poll for system update every second
+    let mut interval_timer = interval(Duration::from_millis(1000));
+
+    tokio::spawn(async move {
+        loop {
+            // Check state and exit loop if the flag is set
+            let stop_updates = {
+                let state = app.state::<Mutex<MonitorUpdateState>>();
+                let state_guard = state.lock().unwrap();
+                state_guard.stop_system_updates
+            };
+            if stop_updates {
+                println!("Stopping system updates");
+                break;
+            }
+            interval_timer.tick().await;
+
+            let sys_info = get_sys_info();
+            // Emit the event globally and handle potential error
+            if let Err(err) = app.emit("system_update", sys_info) {
+                eprintln!("Failed to emit system_update event. Error: {err}");
+            };
+        }
+    });
+}
+
+#[tauri::command]
+pub fn stop_monitoring_system(state: State<'_, Mutex<MonitorUpdateState>>) -> Result<(), String> {
+    if let Ok(mut state_guard) = state.lock() {
+        state_guard.stop_system_updates = true;
+    } else {
+        return Err("Failed to acquire lock on monitoring state".to_owned());
+    };
+    Ok(())
 }
 
 /// Gets all disks on the system
@@ -106,10 +150,13 @@ mod tests {
         let info = get_sys_info();
 
         assert!(!info.name.is_empty());
-        assert_eq!(info.name, env::var("HOSTNAME").unwrap_or("<Unknown>".to_owned()));
+        assert_eq!(
+            info.name,
+            env::var("HOSTNAME").unwrap_or("<Unknown>".to_owned())
+        );
 
         assert!(!info.os.is_empty());
-        // assert_eq!(info.os, String::from(env::consts::OS)); // NOTE: Getting info from /etc/os-release 
+        // assert_eq!(info.os, String::from(env::consts::OS)); // NOTE: Getting info from /etc/os-release
 
         assert!(!info.cpu_arch.is_empty());
         assert_eq!(info.cpu_arch, String::from(env::consts::ARCH));

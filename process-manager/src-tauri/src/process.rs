@@ -1,13 +1,17 @@
 use std::process::{Child, Command};
 use std::str::FromStr;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, Signal, System, UpdateKind, Users};
-use tokio::time::{sleep, timeout};
+use tauri::{AppHandle, Emitter, Manager, State};
+use tokio::time::{interval, sleep, timeout};
+
+use crate::MonitorUpdateState;
 
 // Struct to contain individual process info
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct ProcessInfo {
     id: String,
     name: String,
@@ -55,15 +59,14 @@ fn format_memory(bytes: u64) -> String {
     }
 }
 
-/// Gets all running processes on the system
+/// Gets an up-to-date list of processes on the system
 ///
 /// Returns a vector of `ProcessInfo` structs, one for each process
-#[tauri::command]
-pub fn list_processes() -> Vec<ProcessInfo> {
+fn get_current_processes() -> Vec<ProcessInfo> {
     let mut sys = System::new_all();
     let users = Users::new_with_refreshed_list();
 
-    std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL); // Required for accurate CPU usage stats
+    std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL); // Required for accurate CPU stats
     sys.refresh_processes_specifics(
         ProcessesToUpdate::All,
         true,
@@ -73,7 +76,8 @@ pub fn list_processes() -> Vec<ProcessInfo> {
             .with_user(UpdateKind::Always),
     );
 
-    sys.processes()
+    let mut procs = sys
+        .processes()
         .iter()
         .map(|(id, process)| ProcessInfo {
             id: id.to_string(),
@@ -87,7 +91,61 @@ pub fn list_processes() -> Vec<ProcessInfo> {
             status: process.status().to_string(),
             cpu_usage_percent: process.cpu_usage() / sys.cpus().len() as f32,
         })
-        .collect::<Vec<ProcessInfo>>()
+        .collect::<Vec<ProcessInfo>>();
+
+    // Sort by cpu usage by default. Frontend can implement further sorting functionality
+    procs.sort_by(|a, b| {
+        b.cpu_usage_percent
+            .partial_cmp(&a.cpu_usage_percent)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    procs
+}
+
+/// Regularly updates frontend on all system processes
+///
+/// `app` is used to emit event to the frontend
+#[tauri::command]
+pub async fn monitor_processes(app: AppHandle) {
+    // Poll for process updates every second
+    let mut interval_timer = interval(Duration::from_millis(1000));
+
+    tokio::spawn(async move {
+        loop {
+            // Check state and exit loop if the flag is set
+            let stop_updates = {
+                let state = app.state::<Mutex<MonitorUpdateState>>();
+                let state_guard = state.lock().unwrap();
+                state_guard.stop_process_updates
+            };
+            if stop_updates {
+                println!("Stopping process updates");
+                break;
+            }
+            interval_timer.tick().await;
+
+            let procs = get_current_processes();
+            // Emit the event globally and handle potential error
+            if let Err(err) = app.emit("process_list_update", procs) {
+                eprintln!("Failed to emit process_list_update event. Error: {err}");
+            };
+        }
+    });
+}
+
+/// Updates the MonitorUpdateState to stop process updates
+/// 
+/// `state` is a reference to the MonitorUpdateState injected by Tauri
+/// 
+/// Returns a Unit Type (null in JavaScript) if successful and a String error if unsuccessful 
+#[tauri::command]
+pub fn stop_monitoring_processes(state: State<'_, Mutex<MonitorUpdateState>>) -> Result<(), String> {
+    if let Ok(mut state_guard) = state.lock() {
+        state_guard.stop_process_updates = true;
+    } else {
+        return Err("Failed to acquire lock on monitoring state".to_owned())
+    };    
+    Ok(())
 }
 
 /// Tries to kill a process gracefully using SIGTERM
@@ -278,7 +336,7 @@ mod tests {
             ProcessStatus::Zombie.to_string(),
         ];
 
-        let procs = list_processes();
+        let procs = get_current_processes();
 
         for proc in procs {
             assert!(!proc.id.is_empty());

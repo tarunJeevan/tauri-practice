@@ -3,7 +3,7 @@ export interface ProcessInfo {
     name: string,
     owner: string,
     running_time_formatted: string,
-    memory_in_bytes: string,
+    memory_used: string,
     status: string,
     cpu_usage_percent: number,
 }
