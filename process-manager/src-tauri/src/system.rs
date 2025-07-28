@@ -33,7 +33,7 @@ pub struct DiskInfo {
 ///
 /// Returns a formatted String (e.g., "2 MB")
 fn format_bytes(bytes: u64) -> String {
-    let units = ["B", "KB", "MB", "GB", "TB", "PB", "EB"];
+    let units = ["B", "KB", "MB", "GB", "TB", "PB"];
     let mut size = bytes as f64;
     let mut unit = 0;
 
@@ -78,12 +78,14 @@ pub async fn monitor_sys_info(app: AppHandle) {
     // Poll for system update every second
     let mut interval_timer = interval(Duration::from_millis(1000));
 
+    // NOTE: Use tauri::async_runtime::spawn() instead?
     tokio::spawn(async move {
         loop {
             // Check state and exit loop if the flag is set
             let stop_updates = {
                 let state = app.state::<Mutex<MonitorUpdateState>>();
                 let state_guard = state.lock().unwrap();
+
                 state_guard.stop_system_updates
             };
             if stop_updates {

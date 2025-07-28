@@ -1,12 +1,13 @@
 import {useEffect, useState} from "react";
-import {invoke} from "@tauri-apps/api/core";
 
+import {invoke} from "@tauri-apps/api/core";
+import {listen, UnlistenFn} from "@tauri-apps/api/event";
+
+import System from "./components/System.tsx";
+import Processes from "./components/Processes.tsx";
 import {ProcessInfo} from "./types/process.ts";
 import {DiskInfo, SystemInfo} from "./types/system.ts";
 import "./App.css";
-import System from "./components/System.tsx";
-import Processes from "./components/Processes.tsx";
-import {listen, UnlistenFn} from "@tauri-apps/api/event";
 
 export default function App() {
     const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
@@ -21,12 +22,19 @@ export default function App() {
         async function fetchData() {
             const disks = await invoke<DiskInfo[]>("get_all_disks");
 
+            // Set event listeners
             systemUnlisten = await listen<SystemInfo>('system_update', event => {
+                console.log("System update event firing");
                 setSystemInfo(event.payload);
             });
             processUnlisten = await listen<ProcessInfo[]>('process_list_update', event => {
+                console.log("Process update event firing");
                 setProcesses(event.payload);
-            })
+            });
+
+            // Start system and process monitoring
+            await invoke("monitor_sys_info");
+            await invoke("monitor_processes");
 
             setDisksInfo(disks);
         }
@@ -55,8 +63,6 @@ export default function App() {
 
     return (
         <main className="container">
-            <h2>Operating System: {systemInfo?.os}</h2>
-
             {/* TODO: Put System and Disk into one tab and Processes in another */}
             <div className="flex flex-col gap-6">
                 {systemInfo !== null && disksInfo.length > 0 ? (

@@ -1,5 +1,3 @@
-use crate::process::monitor_processes;
-use crate::system::monitor_sys_info;
 use std::sync::Mutex;
 use tauri::Manager;
 
@@ -15,6 +13,7 @@ struct MonitorUpdateState {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             system::monitor_sys_info,
@@ -28,18 +27,20 @@ pub fn run() {
         .setup(|app| {
             // Set default MonitorUpdateState
             app.manage(Mutex::new(MonitorUpdateState::default()));
-            // Get AppHandles
-            let process_app_handle = app.handle().clone();
-            let system_app_handle = app.handle().clone();
-
-            // Start monitoring processes when the app starts up
-            tokio::spawn(async move {
-                monitor_processes(process_app_handle).await;
-            });
-            // Start monitoring system resource usage when the app starts up
-            tokio::spawn(async move {
-                monitor_sys_info(system_app_handle).await;
-            });
+            // // Create tokio runtime
+            // let rt = tokio::runtime::Runtime::new().unwrap();
+            // // Gett app handle clones
+            // let process_app_handle = app.handle().clone();
+            // let system_app_handle = app.handle().clone();
+            //
+            // // Start monitoring processes when the app starts up
+            // rt.spawn(async move {
+            //     monitor_processes(process_app_handle).await;
+            // });
+            // // Start monitoring system resource usage when the app starts up
+            // rt.spawn(async move {
+            //     monitor_sys_info(system_app_handle).await;
+            // });
 
             Ok(())
         })

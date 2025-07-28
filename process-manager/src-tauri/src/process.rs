@@ -110,12 +110,14 @@ pub async fn monitor_processes(app: AppHandle) {
     // Poll for process updates every second
     let mut interval_timer = interval(Duration::from_millis(1000));
 
+    // NOTE: Use tauri::async_runtime::spawn() instead?
     tokio::spawn(async move {
         loop {
             // Check state and exit loop if the flag is set
             let stop_updates = {
                 let state = app.state::<Mutex<MonitorUpdateState>>();
                 let state_guard = state.lock().unwrap();
+                
                 state_guard.stop_process_updates
             };
             if stop_updates {
@@ -134,17 +136,19 @@ pub async fn monitor_processes(app: AppHandle) {
 }
 
 /// Updates the MonitorUpdateState to stop process updates
-/// 
+///
 /// `state` is a reference to the MonitorUpdateState injected by Tauri
-/// 
-/// Returns a Unit Type (null in JavaScript) if successful and a String error if unsuccessful 
+///
+/// Returns a Unit Type (null in JavaScript) if successful and a String error if unsuccessful
 #[tauri::command]
-pub fn stop_monitoring_processes(state: State<'_, Mutex<MonitorUpdateState>>) -> Result<(), String> {
+pub fn stop_monitoring_processes(
+    state: State<'_, Mutex<MonitorUpdateState>>,
+) -> Result<(), String> {
     if let Ok(mut state_guard) = state.lock() {
         state_guard.stop_process_updates = true;
     } else {
-        return Err("Failed to acquire lock on monitoring state".to_owned())
-    };    
+        return Err("Failed to acquire lock on monitoring state".to_owned());
+    };
     Ok(())
 }
 
